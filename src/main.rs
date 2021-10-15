@@ -81,6 +81,7 @@ impl State {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
+
         {
             let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
@@ -99,11 +100,11 @@ impl State {
                 }],
                 depth_stencil_attachment: None,
             });
-            // submit will accept anything that implements IntoIter
-            self.queue.submit(std::iter::once(&encoder.finish()));
-
-            Ok(())
         }
+        // submit will accept anything that implements IntoIter
+        self.queue.submit(std::iter::once(encoder.finish()));
+
+        Ok(())
     }
 }
 
