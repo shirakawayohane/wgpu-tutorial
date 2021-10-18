@@ -310,6 +310,8 @@ impl State {
                 label: Some("camera_bind_group_layout"),
             });
 
+        let camera_bind_group = device.create_bind_group(&wgpu::)
+
         Self {
             surface,
             device,
