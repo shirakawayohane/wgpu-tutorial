@@ -1,5 +1,6 @@
 mod texture;
 
+use cgmath::{Point3, Transform};
 use pollster::block_on;
 use wgpu::util::DeviceExt;
 use winit::{
@@ -87,10 +88,30 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
 impl Camera {
     fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
         // 1.
-        let view = cgmath::Matrix4::lock_at_rh(self.eye, self.target, self.up);
+        let view = cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
         // 2.
         let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
         return OPENGL_TO_WGPU_MATRIX * proj * view;
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct CameraUniform {
+    // cgmathにbytemuckを直接使うことはできないので、Matrix4と 4x4の f32の配列にしておく
+    view_proj: [[f32; 4]; 4],
+}
+
+impl CameraUniform {
+    fn new() -> Self {
+        use cgmath::SquareMatrix;
+        Self {
+            view_proj: cgmath::Matrix4::identity().into(),
+        }
+    }
+
+    fn update_view_proj(&mut self, camera: &Camera) {
+        self.view_proj = camera.build_view_projection_matrix().into();
     }
 }
 
@@ -177,21 +198,6 @@ impl State {
                 label: Some("texture_bind_group_layout"),
             });
 
-        // let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        //     layout: &texture_bind_group_layout,
-        //     entries: &[
-        //         wgpu::BindGroupEntry {
-        //             binding: 0,
-        //             resource: wgpu::BindingResource::TextureView(&diffuse_texture_view),
-        //         },
-        //         wgpu::BindGroupEntry {
-        //             binding: 1,
-        //             resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
-        //         },
-        //     ],
-        //     label: Some("diffuse_bind_group"),
-        // });
-
         let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &texture_bind_group_layout,
             entries: &[
@@ -272,13 +278,37 @@ impl State {
             // position the camera one unit up and 2 units back
             // +z is out of the screen
             eye: (0.0, 1.0, 2.0).into(),
-            target: Point3<f32>::new(0.0,0.0,0.0),
+            target: (0.0, 0.0, 0.0).into(),
             up: cgmath::Vector3::unit_y(),
             aspect: config.width as f32 / config.height as f32,
             fovy: 45.0,
             znear: 0.1,
             zfar: 100.0,
         };
+
+        let mut camera_uniform = CameraUniform::new();
+        camera_uniform.update_view_proj(&camera);
+
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Camera Buffer"),
+            contents: bytemuck::cast_slice(&[camera_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("camera_bind_group_layout"),
+            });
 
         Self {
             surface,
@@ -292,7 +322,7 @@ impl State {
             num_indices,
             diffuse_bind_group,
             diffuse_texture,
-            camera
+            camera,
         }
     }
 
